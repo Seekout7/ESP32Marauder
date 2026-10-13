@@ -7,62 +7,81 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    env:
-      ARDUINO_CLI_PATH: /home/runner/bin/arduino-cli
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Setup Arduino CLI
+      - name: Install Arduino CLI (fixed path)
         run: |
+          set -euo pipefail
           mkdir -p /home/runner/bin
           curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh -s -- -b /home/runner/bin
           echo "/home/runner/bin" >> $GITHUB_PATH
-          $ARDUINO_CLI_PATH core update-index
-          $ARDUINO_CLI_PATH core install esp32:esp32@3.3.4
+          export PATH="/home/runner/bin:$PATH"
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.4
+          arduino-cli version
 
       - name: Install Libraries
         run: |
-          $ARDUINO_CLI_PATH lib install "ESP32Ping"
+          set -euo pipefail
+          export PATH="/home/runner/bin:$PATH"
+          arduino-cli lib install "ESP32Ping"
           git clone --depth 1 https://github.com/ESP32Async/AsyncTCP.git ~/Arduino/libraries/AsyncTCP
           git clone --depth 1 -b master https://github.com/bigbrodude6119/ESPAsyncWebServer.git ~/Arduino/libraries/ESPAsyncWebServer
+          ls -la ~/Arduino/libraries/
 
       - name: Patch configs.h for C5 4MB no-PSRAM
         run: |
+          set -euo pipefail
           cd esp32_marauder
+          echo "=== ORIGINAL configs.h (first 50 lines) ==="
+          head -50 configs.h
+          
           # Enable MARAUDER_C5
-          sed -i 's|//#define MARAUDER_C5|#define MARAUDER_C5|' configs.h
-          # Disable PSRAM
-          sed -i 's|^#define HAS_PSRAM|//#define HAS_PSRAM|g' configs.h
-          sed -i 's|^    #define HAS_PSRAM|//    #define HAS_PSRAM|g' configs.h
-          # Add USE_MIN_SPIFFS for 4MB partition
-          sed -i '/#define MARAUDER_C5/a #define USE_MIN_SPIFFS' configs.h
-          # Verify
-          grep -E 'MARAUDER_C5|HAS_PSRAM|USE_MIN_SPIFFS' configs.h | head -10
+          sed -i 's|^//#define MARAUDER_C5$|#define MARAUDER_C5|' configs.h
+          # Disable ALL HAS_PSRAM occurrences
+          sed -i 's|^#define HAS_PSRAM$|//#define HAS_PSRAM|g' configs.h
+          sed -i 's|^    #define HAS_PSRAM$|//    #define HAS_PSRAM|g' configs.h
+          sed -i 's|^  #define HAS_PSRAM$|//  #define HAS_PSRAM|g' configs.h
+          # Add USE_MIN_SPIFFS after MARAUDER_C5
+          sed -i '/^#define MARAUDER_C5$/a #define USE_MIN_SPIFFS' configs.h
+          
+          echo "=== PATCHED configs.h (relevant lines) ==="
+          grep -n -E 'MARAUDER_C5|HAS_PSRAM|USE_MIN_SPIFFS' configs.h || true
 
       - name: Compile Marauder C5 4MB no-PSRAM
         run: |
+          set -euo pipefail
+          export PATH="/home/runner/bin:$PATH"
           arduino-cli compile \
             -b "esp32:esp32:esp32c5:FlashSize=4M,PartitionScheme=min_spiffs,PSRAM=disabled,CDCOnBoot=default" \
             --build-property "compiler.cpp.extra_flags=-DMARAUDER_C5 -DUSE_MIN_SPIFFS" \
             --build-property "compiler.c.extra_flags=-DMARAUDER_C5 -DUSE_MIN_SPIFFS" \
             --output-dir ./build \
-            esp32_marauder
+            -v \
+            esp32_marauder 2>&1 | tail -50
 
       - name: Verify Build Output
         run: |
+          set -euo pipefail
           ls -la build/
+          echo "=== Binary info ==="
           file build/esp32_marauder.ino.bin
+          ls -lh build/esp32_marauder.ino.bin
 
       - name: Package Artifacts
         run: |
+          set -euo pipefail
           mkdir -p artifacts
           cp build/esp32_marauder.ino.bin artifacts/marauder_c5_4mb.bin
           cp build/esp32_marauder.ino.bootloader.bin artifacts/bootloader.bin
           cp build/esp32_marauder.ino.partitions.bin artifacts/partitions.bin
           ls -la artifacts/
+          echo "=== Artifact sizes ==="
+          ls -lh artifacts/
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
