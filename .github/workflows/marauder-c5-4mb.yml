@@ -13,69 +13,70 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Arduino CLI
+      - name: Install Arduino CLI + ESP32 Core
         run: |
-          echo "=== DOWNLOAD ==="
           mkdir -pv /home/runner/bin
           curl -fL "https://downloads.arduino.cc/arduino-cli/arduino-cli_1.5.1_Linux_64bit.tar.gz" -o /tmp/cli.tar.gz
-          echo "=== EXTRACT ==="
           tar -xzf /tmp/cli.tar.gz -C /home/runner/bin/
           chmod +x /home/runner/bin/arduino-cli
-          echo "=== VERSION ==="
-          /home/runner/bin/arduino-cli version
-          echo "=== UPDATE INDEX ==="
           /home/runner/bin/arduino-cli core update-index
-          echo "=== INSTALL ESP32 CORE ==="
           /home/runner/bin/arduino-cli core install esp32:esp32@3.3.4
-          echo "=== INSTALLED CORES ==="
           /home/runner/bin/arduino-cli core list
 
       - name: Install Libraries
         run: |
-          echo "=== ESP32Ping ==="
           git clone --depth 1 https://github.com/marian-craciunescu/ESP32Ping.git ~/Arduino/libraries/ESP32Ping
-          echo "=== NimBLE ==="
           git clone --depth 1 https://github.com/h2zero/NimBLE-Arduino.git ~/Arduino/libraries/NimBLE-Arduino
-          echo "=== AsyncTCP ==="
           git clone --depth 1 https://github.com/ESP32Async/AsyncTCP.git ~/Arduino/libraries/AsyncTCP
-          echo "=== ESPAsyncWebServer ==="
           git clone --depth 1 -b master https://github.com/bigbrodude6119/ESPAsyncWebServer.git ~/Arduino/libraries/ESPAsyncWebServer
-          echo "=== INSTALLED ==="
           ls ~/Arduino/libraries/
 
       - name: Patch configs.h
         run: |
           cd esp32_marauder
-          echo "=== BEFORE ==="
-          grep -n "MARAUDER_C5\|HAS_PSRAM" configs.h | head -20
           sed -i 's|//#define MARAUDER_C5|#define MARAUDER_C5|' configs.h
           sed -i 's|^    #define HAS_PSRAM|//    #define HAS_PSRAM|' configs.h
-          echo "=== AFTER ==="
           grep -n "MARAUDER_C5\|HAS_PSRAM" configs.h | head -20
 
-      - name: Compile
+      - name: Compile (verbose, hata yakalama)
+        continue-on-error: true
         run: |
-          echo "=== BOARD INFO ==="
-          /home/runner/bin/arduino-cli board details -b "esp32:esp32:esp32c5:FlashSize=4M,PartitionScheme=min_spiffs,PSRAM=disabled,CDCOnBoot=default" || echo "board details failed but continuing"
-          echo "=== COMPILE ==="
           /home/runner/bin/arduino-cli compile \
             -b "esp32:esp32:esp32c5:FlashSize=4M,PartitionScheme=min_spiffs,PSRAM=disabled,CDCOnBoot=default" \
             --build-property "compiler.cpp.extra_flags=-DMARAUDER_C5" \
             --build-property "compiler.c.extra_flags=-DMARAUDER_C5" \
             --output-dir ./build \
-            esp32_marauder 2>&1 | tail -30
-          echo "=== BUILD OUTPUT ==="
-          ls -la build/ 2>&1
+            --verbose \
+            esp32_marauder > /tmp/compile.log 2>&1
+          echo "=== SON 100 SATIR ==="
+          tail -100 /tmp/compile.log
+          echo "=== HATA SATIRLARI ==="
+          grep -i "error\|fatal\|undefined\|not found" /tmp/compile.log | head -30
 
-      - name: Package
+      - name: Upload Build Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            /tmp/compile.log
+            build/
+          retention-days: 3
+
+      - name: Package (sadece başarılıysa)
         run: |
-          mkdir -p artifacts
-          cp build/esp32_marauder.ino.bin artifacts/marauder_c5_4mb.bin 2>/dev/null || echo "main bin missing"
-          cp build/esp32_marauder.ino.bootloader.bin artifacts/bootloader.bin 2>/dev/null || echo "bootloader missing"
-          cp build/esp32_marauder.ino.partitions.bin artifacts/partitions.bin 2>/dev/null || echo "partitions missing"
-          ls -la artifacts/
+          if [ -f build/esp32_marauder.ino.bin ]; then
+            mkdir -p artifacts
+            cp build/esp32_marauder.ino.bin artifacts/marauder_c5_4mb.bin
+            cp build/esp32_marauder.ino.bootloader.bin artifacts/bootloader.bin
+            cp build/esp32_marauder.ino.partitions.bin artifacts/partitions.bin
+            ls -la artifacts/
+          else
+            echo "BUILD FAILED - artifacts yok"
+          fi
 
-      - name: Upload
+      - name: Upload Firmware
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: marauder-c5-4mb-no-psram
