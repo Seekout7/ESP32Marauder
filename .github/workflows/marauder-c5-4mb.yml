@@ -13,61 +13,51 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Arduino CLI (direct download)
+      - name: Install Arduino CLI
         run: |
-          set -euo pipefail
           mkdir -p /home/runner/bin
-          curl -fsSL https://downloads.arduino.cc/arduino-cli/arduino-cli_1.5.1_Linux_64bit.tar.gz -o /tmp/arduino-cli.tar.gz
-          tar -xzf /tmp/arduino-cli.tar.gz -C /tmp/
+          curl -fsSL https://downloads.arduino.cc/arduino-cli/arduino-cli_1.5.1_Linux_64bit.tar.gz | tar xz -C /tmp/
           cp /tmp/arduino-cli /home/runner/bin/
           chmod +x /home/runner/bin/arduino-cli
           echo "/home/runner/bin" >> $GITHUB_PATH
           export PATH="/home/runner/bin:$PATH"
-          arduino-cli version
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@3.3.4
 
-      - name: Install Libraries
+      - name: Install Libraries via git
         run: |
-          set -euo pipefail
           export PATH="/home/runner/bin:$PATH"
-          arduino-cli lib install "ESP32Ping"
+          git clone --depth 1 https://github.com/marian-craciunescu/ESP32Ping.git ~/Arduino/libraries/ESP32Ping
+          git clone --depth 1 https://github.com/h2zero/NimBLE-Arduino.git ~/Arduino/libraries/NimBLE-Arduino
           git clone --depth 1 https://github.com/ESP32Async/AsyncTCP.git ~/Arduino/libraries/AsyncTCP
           git clone --depth 1 -b master https://github.com/bigbrodude6119/ESPAsyncWebServer.git ~/Arduino/libraries/ESPAsyncWebServer
+          ls ~/Arduino/libraries/
 
       - name: Patch configs.h
         run: |
-          set -euo pipefail
           cd esp32_marauder
-          sed -i 's|^//#define MARAUDER_C5$|#define MARAUDER_C5|' configs.h
-          sed -i 's|^#define HAS_PSRAM$|//#define HAS_PSRAM|g' configs.h
-          sed -i 's|^    #define HAS_PSRAM$|//    #define HAS_PSRAM|g' configs.h
-          sed -i 's|^  #define HAS_PSRAM$|//  #define HAS_PSRAM|g' configs.h
-          sed -i '/^#define MARAUDER_C5$/a #define USE_MIN_SPIFFS' configs.h
-          echo "=== Verification ==="
-          grep -n -E 'MARAUDER_C5|HAS_PSRAM|USE_MIN_SPIFFS' configs.h | head -20
+          sed -i 's|//#define MARAUDER_C5|#define MARAUDER_C5|' configs.h
+          sed -i 's|^    #define HAS_PSRAM|//    #define HAS_PSRAM|' configs.h
+          sed -i 's|^  #define HAS_PSRAM|//  #define HAS_PSRAM|' configs.h
 
       - name: Compile
         run: |
-          set -euo pipefail
           export PATH="/home/runner/bin:$PATH"
           arduino-cli compile \
             -b "esp32:esp32:esp32c5:FlashSize=4M,PartitionScheme=min_spiffs,PSRAM=disabled,CDCOnBoot=default" \
-            --build-property "compiler.cpp.extra_flags=-DMARAUDER_C5 -DUSE_MIN_SPIFFS" \
-            --build-property "compiler.c.extra_flags=-DMARAUDER_C5 -DUSE_MIN_SPIFFS" \
+            --build-property "compiler.cpp.extra_flags=-DMARAUDER_C5" \
+            --build-property "compiler.c.extra_flags=-DMARAUDER_C5" \
             --output-dir ./build \
             esp32_marauder
 
-      - name: Package Artifacts
+      - name: Package
         run: |
-          set -euo pipefail
           mkdir -p artifacts
           cp build/esp32_marauder.ino.bin artifacts/marauder_c5_4mb.bin
           cp build/esp32_marauder.ino.bootloader.bin artifacts/bootloader.bin
           cp build/esp32_marauder.ino.partitions.bin artifacts/partitions.bin
-          ls -lh artifacts/
 
-      - name: Upload Artifacts
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: marauder-c5-4mb-no-psram
