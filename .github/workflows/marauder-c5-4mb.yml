@@ -10,75 +10,80 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
-      - name: Install Arduino CLI + ESP32 Core
+      - name: Install Arduino CLI + ESP32 core 3.3.4
         run: |
           mkdir -pv /home/runner/bin
           curl -fL "https://downloads.arduino.cc/arduino-cli/arduino-cli_1.5.1_Linux_64bit.tar.gz" -o /tmp/cli.tar.gz
           tar -xzf /tmp/cli.tar.gz -C /home/runner/bin/
           chmod +x /home/runner/bin/arduino-cli
-          /home/runner/bin/arduino-cli core update-index
-          /home/runner/bin/arduino-cli core install esp32:esp32@3.3.4
-          /home/runner/bin/arduino-cli core list
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.4
+          arduino-cli core list >> $GITHUB_STEP_SUMMARY 2>&1
 
-      - name: Install Libraries
+      - name: Install libraries
         run: |
-          git clone --depth 1 https://github.com/marian-craciunescu/ESP32Ping.git ~/Arduino/libraries/ESP32Ping
-          git clone --depth 1 https://github.com/h2zero/NimBLE-Arduino.git ~/Arduino/libraries/NimBLE-Arduino
-          git clone --depth 1 https://github.com/ESP32Async/AsyncTCP.git ~/Arduino/libraries/AsyncTCP
-          git clone --depth 1 -b master https://github.com/bigbrodude6119/ESPAsyncWebServer.git ~/Arduino/libraries/ESPAsyncWebServer
-          ls ~/Arduino/libraries/
+          g() { git clone --depth 1 "$1" "Custom$2" || echo "FAIL: $2"; }
+          g https://github.com/marian-craciunescu/ESP32Ping ESP32Ping
+          g https://github.com/ESP32Async/AsyncTCP AsyncTCP
+          g https://github.com/stevemarple/MicroNMEA MicroNMEA
+          g https://github.com/ESP32Async/ESPAsyncWebServer ESPAsyncWebServer
+          g https://github.com/h2zero/NimBLE-Arduino NimBLE-Arduino
+          g https://github.com/adafruit/Adafruit_NeoPixel Adafruit_NeoPixel
+          g https://github.com/bblanchon/ArduinoJson ArduinoJson
+          g https://github.com/ivanseidel/LinkedList LinkedList
+          g https://github.com/plerup/espsoftwareserial EspSoftwareSerial
+          g https://github.com/adafruit/Adafruit_BusIO Adafruit_BusIO
+          cp -r libraries/Adafruit_TCA8418 CustomAdafruit_TCA8418 2>/dev/null || echo "TCA8418 yok"
+          ls -d Custom* | tee -a $GITHUB_STEP_SUMMARY
 
-      - name: Patch configs.h
+      - name: Patch platform (zmuldefs + no-exceptions)
         run: |
-          cd esp32_marauder
-          sed -i 's|//#define MARAUDER_C5|#define MARAUDER_C5|' configs.h
-          sed -i 's|^    #define HAS_PSRAM|//    #define HAS_PSRAM|' configs.h
-          grep -n "MARAUDER_C5\|HAS_PSRAM" configs.h | head -20
+          for f in $(find /home/runner/.arduino15/packages/esp32/hardware/esp32/ -name platform.txt); do
+            sed -i 's/compiler.c.elf.extra_flags=/compiler.c.elf.extra_flags=-Wl,-zmuldefs /' "$f"
+          done
+          for f in $(find /home/runner/.arduino15/packages/esp32/tools/esp32-arduino-libs/ -name cpp_flags); do
+            sed -i 's/-fexceptions/-fno-exceptions/g' "$f"
+          done
+          echo "platform patch OK" >> $GITHUB_STEP_SUMMARY
 
-      - name: Compile (verbose, hata yakalama)
-        continue-on-error: true
+      - name: Board info -> summary
         run: |
-          /home/runner/bin/arduino-cli compile \
-            -b "esp32:esp32:esp32c5:FlashSize=4M,PartitionScheme=min_spiffs,PSRAM=disabled,CDCOnBoot=default" \
+          arduino-cli board details -b "esp32:esp32:esp32c5" >> $GITHUB_STEP_SUMMARY 2>&1 || \
+          arduino-cli board listall | grep -i c5 >> $GITHUB_STEP_SUMMARY 2>&1
+
+      - name: Compile
+        run: |
+          FQBN="esp32:esp32:esp32c5:FlashSize=4M,PartitionScheme=min_spiffs,PSRAM=disabled"
+          LIBS=""
+          for d in Custom*/; do LIBS="$LIBS --library $d"; done
+          arduino-cli compile --fqbn "$FQBN" $LIBS \
+            --warnings none \
             --build-property "compiler.cpp.extra_flags=-DMARAUDER_C5" \
-            --build-property "compiler.c.extra_flags=-DMARAUDER_C5" \
             --output-dir ./build \
-            --verbose \
-            esp32_marauder > /tmp/compile.log 2>&1
-          echo "=== SON 100 SATIR ==="
-          tail -100 /tmp/compile.log
-          echo "=== HATA SATIRLARI ==="
-          grep -i "error\|fatal\|undefined\|not found" /tmp/compile.log | head -30
+            esp32_marauder > /tmp/compile.log 2>&1 || true
+          tail -60 /tmp/compile.log >> $GITHUB_STEP_SUMMARY
+          echo "=== SIZE ===" >> $GITHUB_STEP_SUMMARY
+          ls -la build/ >> $GITHUB_STEP_SUMMARY 2>&1 || true
 
-      - name: Upload Build Log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs
-          path: |
-            /tmp/compile.log
-            build/
-          retention-days: 3
-
-      - name: Package (sadece başarılıysa)
+      - name: Upload firmware
         run: |
           if [ -f build/esp32_marauder.ino.bin ]; then
             mkdir -p artifacts
             cp build/esp32_marauder.ino.bin artifacts/marauder_c5_4mb.bin
             cp build/esp32_marauder.ino.bootloader.bin artifacts/bootloader.bin
             cp build/esp32_marauder.ino.partitions.bin artifacts/partitions.bin
-            ls -la artifacts/
+            ls -lh artifacts/ >> $GITHUB_STEP_SUMMARY
           else
-            echo "BUILD FAILED - artifacts yok"
+            echo "BUILD FAILED" >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: Upload Firmware
-        if: success()
+      - name: Publish
         uses: actions/upload-artifact@v4
         with:
-          name: marauder-c5-4mb-no-psram
+          name: marauder-c5-4mb
           path: artifacts/
           retention-days: 7
+          if-no-files-found: ignore
+
+satırlar 1-87
