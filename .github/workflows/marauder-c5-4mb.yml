@@ -6,49 +6,65 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
+    env:
+      ARDUINO_CLI_PATH: /home/runner/bin/arduino-cli
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install Arduino CLI
+      - name: Setup Arduino CLI
         run: |
-          # Install directly to $HOME/bin which is already in PATH
-          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh -s -- -b "$HOME/bin"
-          "$HOME/bin/arduino-cli" core update-index
-          "$HOME/bin/arduino-cli" core install esp32:esp32@3.3.4
+          mkdir -p /home/runner/bin
+          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh -s -- -b /home/runner/bin
+          echo "/home/runner/bin" >> $GITHUB_PATH
+          $ARDUINO_CLI_PATH core update-index
+          $ARDUINO_CLI_PATH core install esp32:esp32@3.3.4
 
-      - name: Install dependencies
+      - name: Install Libraries
         run: |
-          "$HOME/bin/arduino-cli" lib install "ESP32Ping"
+          $ARDUINO_CLI_PATH lib install "ESP32Ping"
           git clone --depth 1 https://github.com/ESP32Async/AsyncTCP.git ~/Arduino/libraries/AsyncTCP
           git clone --depth 1 -b master https://github.com/bigbrodude6119/ESPAsyncWebServer.git ~/Arduino/libraries/ESPAsyncWebServer
 
-      - name: Configure MARAUDER_C5 for 4MB no-PSRAM
+      - name: Patch configs.h for C5 4MB no-PSRAM
         run: |
           cd esp32_marauder
+          # Enable MARAUDER_C5
           sed -i 's|//#define MARAUDER_C5|#define MARAUDER_C5|' configs.h
-          sed -i 's|#define HAS_PSRAM|//#define HAS_PSRAM|g' configs.h
+          # Disable PSRAM
+          sed -i 's|^#define HAS_PSRAM|//#define HAS_PSRAM|g' configs.h
+          sed -i 's|^    #define HAS_PSRAM|//    #define HAS_PSRAM|g' configs.h
+          # Add USE_MIN_SPIFFS for 4MB partition
           sed -i '/#define MARAUDER_C5/a #define USE_MIN_SPIFFS' configs.h
+          # Verify
+          grep -E 'MARAUDER_C5|HAS_PSRAM|USE_MIN_SPIFFS' configs.h | head -10
 
-      - name: Compile
+      - name: Compile Marauder C5 4MB no-PSRAM
         run: |
-          "$HOME/bin/arduino-cli" compile \
+          arduino-cli compile \
             -b "esp32:esp32:esp32c5:FlashSize=4M,PartitionScheme=min_spiffs,PSRAM=disabled,CDCOnBoot=default" \
             --build-property "compiler.cpp.extra_flags=-DMARAUDER_C5 -DUSE_MIN_SPIFFS" \
             --build-property "compiler.c.extra_flags=-DMARAUDER_C5 -DUSE_MIN_SPIFFS" \
             --output-dir ./build \
             esp32_marauder
 
-      - name: Package artifacts
+      - name: Verify Build Output
+        run: |
+          ls -la build/
+          file build/esp32_marauder.ino.bin
+
+      - name: Package Artifacts
         run: |
           mkdir -p artifacts
           cp build/esp32_marauder.ino.bin artifacts/marauder_c5_4mb.bin
           cp build/esp32_marauder.ino.bootloader.bin artifacts/bootloader.bin
           cp build/esp32_marauder.ino.partitions.bin artifacts/partitions.bin
+          ls -la artifacts/
 
-      - name: Upload artifacts
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: marauder-c5-4mb-no-psram
