@@ -14,14 +14,14 @@ jobs:
 
       - name: Install Arduino CLI
         run: |
-          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
-          echo "$HOME/bin" >> $GITHUB_PATH
-          $HOME/bin/arduino-cli core update-index
-          $HOME/bin/arduino-cli core install esp32:esp32@3.3.4
+          # Install directly to $HOME/bin which is already in PATH
+          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh -s -- -b "$HOME/bin"
+          "$HOME/bin/arduino-cli" core update-index
+          "$HOME/bin/arduino-cli" core install esp32:esp32@3.3.4
 
       - name: Install dependencies
         run: |
-          $HOME/bin/arduino-cli lib install "ESP32Ping"
+          "$HOME/bin/arduino-cli" lib install "ESP32Ping"
           git clone --depth 1 https://github.com/ESP32Async/AsyncTCP.git ~/Arduino/libraries/AsyncTCP
           git clone --depth 1 -b master https://github.com/bigbrodude6119/ESPAsyncWebServer.git ~/Arduino/libraries/ESPAsyncWebServer
 
@@ -34,7 +34,7 @@ jobs:
 
       - name: Compile
         run: |
-          $HOME/bin/arduino-cli compile \
+          "$HOME/bin/arduino-cli" compile \
             -b "esp32:esp32:esp32c5:FlashSize=4M,PartitionScheme=min_spiffs,PSRAM=disabled,CDCOnBoot=default" \
             --build-property "compiler.cpp.extra_flags=-DMARAUDER_C5 -DUSE_MIN_SPIFFS" \
             --build-property "compiler.c.extra_flags=-DMARAUDER_C5 -DUSE_MIN_SPIFFS" \
