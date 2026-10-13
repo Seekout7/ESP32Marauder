@@ -1,0 +1,50 @@
+name: Build Marauder C5 4MB no-PSRAM
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install Arduino CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
+          echo "$HOME/bin" >> $GITHUB_PATH
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.4
+      - name: Install dependencies
+        run: |
+          arduino-cli lib install "ESP32Ping"
+          git clone --depth 1 https://github.com/ESP32Async/AsyncTCP.git ~/Arduino/libraries/AsyncTCP
+          git clone --depth 1 -b master https://github.com/bigbrodude6119/ESPAsyncWebServer.git ~/Arduino/libraries/ESPAsyncWebServer
+      - name: Configure MARAUDER_C5 for 4MB no-PSRAM
+        run: |
+          cd esp32_marauder
+          sed -i 's|//#define MARAUDER_C5|#define MARAUDER_C5|' configs.h
+          sed -i 's|#define HAS_PSRAM|//#define HAS_PSRAM|g' configs.h
+          sed -i '/#define MARAUDER_C5/a #define USE_MIN_SPIFFS' configs.h
+      - name: Compile
+        run: |
+          arduino-cli compile \
+            -b "esp32:esp32:esp32c5:FlashSize=4M,PartitionScheme=min_spiffs,PSRAM=disabled,CDCOnBoot=default" \
+            --build-property "compiler.cpp.extra_flags=-DMARAUDER_C5 -DUSE_MIN_SPIFFS" \
+            --build-property "compiler.c.extra_flags=-DMARAUDER_C5 -DUSE_MIN_SPIFFS" \
+            --output-dir ./build \
+            esp32_marauder
+      - name: Package artifacts
+        run: |
+          mkdir -p artifacts
+          cp build/esp32_marauder.ino.bin artifacts/marauder_c5_4mb.bin
+          cp build/esp32_marauder.ino.bootloader.bin artifacts/bootloader.bin
+          cp build/esp32_marauder.ino.partitions.bin artifacts/partitions.bin
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: marauder-c5-4mb-no-psram
+          path: artifacts/
+          retention-days: 7
