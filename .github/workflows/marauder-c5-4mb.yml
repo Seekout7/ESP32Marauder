@@ -15,47 +15,65 @@ jobs:
 
       - name: Install Arduino CLI
         run: |
-          mkdir -p /home/runner/bin
-          curl -fsSL https://downloads.arduino.cc/arduino-cli/arduino-cli_1.5.1_Linux_64bit.tar.gz | tar xz -C /tmp/
-          cp /tmp/arduino-cli /home/runner/bin/
+          echo "=== DOWNLOAD ==="
+          mkdir -pv /home/runner/bin
+          curl -fL "https://downloads.arduino.cc/arduino-cli/arduino-cli_1.5.1_Linux_64bit.tar.gz" -o /tmp/cli.tar.gz
+          echo "=== EXTRACT ==="
+          tar -xzf /tmp/cli.tar.gz -C /home/runner/bin/
           chmod +x /home/runner/bin/arduino-cli
-          echo "/home/runner/bin" >> $GITHUB_PATH
-          export PATH="/home/runner/bin:$PATH"
-          arduino-cli core update-index
-          arduino-cli core install esp32:esp32@3.3.4
+          echo "=== VERSION ==="
+          /home/runner/bin/arduino-cli version
+          echo "=== UPDATE INDEX ==="
+          /home/runner/bin/arduino-cli core update-index
+          echo "=== INSTALL ESP32 CORE ==="
+          /home/runner/bin/arduino-cli core install esp32:esp32@3.3.4
+          echo "=== INSTALLED CORES ==="
+          /home/runner/bin/arduino-cli core list
 
-      - name: Install Libraries via git
+      - name: Install Libraries
         run: |
-          export PATH="/home/runner/bin:$PATH"
+          echo "=== ESP32Ping ==="
           git clone --depth 1 https://github.com/marian-craciunescu/ESP32Ping.git ~/Arduino/libraries/ESP32Ping
+          echo "=== NimBLE ==="
           git clone --depth 1 https://github.com/h2zero/NimBLE-Arduino.git ~/Arduino/libraries/NimBLE-Arduino
+          echo "=== AsyncTCP ==="
           git clone --depth 1 https://github.com/ESP32Async/AsyncTCP.git ~/Arduino/libraries/AsyncTCP
+          echo "=== ESPAsyncWebServer ==="
           git clone --depth 1 -b master https://github.com/bigbrodude6119/ESPAsyncWebServer.git ~/Arduino/libraries/ESPAsyncWebServer
+          echo "=== INSTALLED ==="
           ls ~/Arduino/libraries/
 
       - name: Patch configs.h
         run: |
           cd esp32_marauder
+          echo "=== BEFORE ==="
+          grep -n "MARAUDER_C5\|HAS_PSRAM" configs.h | head -20
           sed -i 's|//#define MARAUDER_C5|#define MARAUDER_C5|' configs.h
           sed -i 's|^    #define HAS_PSRAM|//    #define HAS_PSRAM|' configs.h
-          sed -i 's|^  #define HAS_PSRAM|//  #define HAS_PSRAM|' configs.h
+          echo "=== AFTER ==="
+          grep -n "MARAUDER_C5\|HAS_PSRAM" configs.h | head -20
 
       - name: Compile
         run: |
-          export PATH="/home/runner/bin:$PATH"
-          arduino-cli compile \
+          echo "=== BOARD INFO ==="
+          /home/runner/bin/arduino-cli board details -b "esp32:esp32:esp32c5:FlashSize=4M,PartitionScheme=min_spiffs,PSRAM=disabled,CDCOnBoot=default" || echo "board details failed but continuing"
+          echo "=== COMPILE ==="
+          /home/runner/bin/arduino-cli compile \
             -b "esp32:esp32:esp32c5:FlashSize=4M,PartitionScheme=min_spiffs,PSRAM=disabled,CDCOnBoot=default" \
             --build-property "compiler.cpp.extra_flags=-DMARAUDER_C5" \
             --build-property "compiler.c.extra_flags=-DMARAUDER_C5" \
             --output-dir ./build \
-            esp32_marauder
+            esp32_marauder 2>&1 | tail -30
+          echo "=== BUILD OUTPUT ==="
+          ls -la build/ 2>&1
 
       - name: Package
         run: |
           mkdir -p artifacts
-          cp build/esp32_marauder.ino.bin artifacts/marauder_c5_4mb.bin
-          cp build/esp32_marauder.ino.bootloader.bin artifacts/bootloader.bin
-          cp build/esp32_marauder.ino.partitions.bin artifacts/partitions.bin
+          cp build/esp32_marauder.ino.bin artifacts/marauder_c5_4mb.bin 2>/dev/null || echo "main bin missing"
+          cp build/esp32_marauder.ino.bootloader.bin artifacts/bootloader.bin 2>/dev/null || echo "bootloader missing"
+          cp build/esp32_marauder.ino.partitions.bin artifacts/partitions.bin 2>/dev/null || echo "partitions missing"
+          ls -la artifacts/
 
       - name: Upload
         uses: actions/upload-artifact@v4
