@@ -21,16 +21,16 @@ jobs:
 
       - name: Libs
         run: |
-          git clone -q --depth 1 https://github.com/marian-craciunescu/ESP32Ping CustomESP32Ping
-          git clone -q --depth 1 https://github.com/ESP32Async/AsyncTCP CustomAsyncTCP
-          git clone -q --depth 1 https://github.com/stevemarple/MicroNMEA CustomMicroNMEA
-          git clone -q --depth 1 https://github.com/ESP32Async/ESPAsyncWebServer CustomESPAsyncWebServer
-          git clone -q --depth 1 https://github.com/h2zero/NimBLE-Arduino CustomNimBLE
-          git clone -q --depth 1 https://github.com/adafruit/Adafruit_NeoPixel CustomNeoPixel
-          git clone -q --depth 1 https://github.com/bblanchon/ArduinoJson CustomArduinoJson
-          git clone -q --depth 1 https://github.com/ivanseidel/LinkedList CustomLinkedList
-          git clone -q --depth 1 https://github.com/plerup/espsoftwareserial CustomEspSoftwareSerial
-          git clone -q --depth 1 https://github.com/adafruit/Adafruit_BusIO CustomBusIO
+          git clone -q -b 1.6 --depth 1 https://github.com/marian-craciunescu/ESP32Ping CustomESP32Ping
+          git clone -q -b v3.4.8 --depth 1 https://github.com/ESP32Async/AsyncTCP CustomAsyncTCP
+          git clone -q -b v2.0.6 --depth 1 https://github.com/stevemarple/MicroNMEA CustomMicroNMEA
+          git clone -q -b v3.8.1 --depth 1 https://github.com/ESP32Async/ESPAsyncWebServer CustomESPAsyncWebServer
+          git clone -q -b 2.3.8 --depth 1 https://github.com/h2zero/NimBLE-Arduino CustomNimBLE
+          git clone -q -b 1.12.0 --depth 1 https://github.com/adafruit/Adafruit_NeoPixel CustomNeoPixel
+          git clone -q -b v6.18.2 --depth 1 https://github.com/bblanchon/ArduinoJson CustomArduinoJson
+          git clone -q -b v1.3.3 --depth 1 https://github.com/ivanseidel/LinkedList CustomLinkedList
+          git clone -q -b 8.1.0 --depth 1 https://github.com/plerup/espsoftwareserial CustomEspSoftwareSerial
+          git clone -q -b 1.15.0 --depth 1 https://github.com/adafruit/Adafruit_BusIO CustomBusIO
           cp -r libraries/Adafruit_TCA8418 CustomTCA8418
 
       - name: Patch
@@ -43,9 +43,9 @@ jobs:
           L=""
           for d in Custom*/; do L="$L --library $d"; done
           arduino-cli compile --fqbn esp32:esp32:esp32c5:PartitionScheme=no_ota,PSRAM=disabled $L --warnings none --build-property compiler.cpp.extra_flags=-DMARAUDER_C5 --output-dir ./build esp32_marauder > b.log 2>&1 || true
-          tail -60 b.log
+          tail -40 b.log
 
-      - name: Push to repo
+      - name: Push
         run: |
           mkdir -p fw
           cp build/esp32_marauder.ino.bin fw/marauder.bin 2>/dev/null || echo "APP YOK" >> b.log
@@ -56,4 +56,3 @@ jobs:
           git add -f b.log fw
           git commit -m "c5 build output" || true
           git push origin HEAD:master || true
-          echo "PUSHED"
