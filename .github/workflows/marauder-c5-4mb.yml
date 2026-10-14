@@ -1,4 +1,4 @@
-name: Build Marauder C5 4MB no-PSRAM
+name: Marauder C5 4MB
 on:
   workflow_dispatch:
 permissions:
@@ -8,77 +8,56 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install Arduino CLI + ESP32 core 3.3.4
+      - name: CLI
         run: |
-          mkdir -pv /home/runner/bin
-          curl -fL "https://downloads.arduino.cc/arduino-cli/arduino-cli_1.5.1_Linux_64bit.tar.gz" -o /tmp/cli.tar.gz
-          tar -xzf /tmp/cli.tar.gz -C /home/runner/bin/
-          chmod +x /home/runner/bin/arduino-cli
+          mkdir -pv /tmp/acli
+          curl -fL https://downloads.arduino.cc/arduino-cli/arduino-cli_1.5.1_Linux_64bit.tar.gz -o /tmp/c.tgz
+          tar -xzf /tmp/c.tgz -C /tmp/acli
+          sudo install -m 755 /tmp/acli/arduino-cli /usr/local/bin/arduino-cli
+          arduino-cli version
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@3.3.4
-          arduino-cli core list >> $GITHUB_STEP_SUMMARY 2>&1
 
-      - name: Install libraries
+      - name: Libs
         run: |
-          g() { git clone --depth 1 "$1" "Custom$2" || echo "FAIL: $2"; }
-          g https://github.com/marian-craciunescu/ESP32Ping ESP32Ping
-          g https://github.com/ESP32Async/AsyncTCP AsyncTCP
-          g https://github.com/stevemarple/MicroNMEA MicroNMEA
-          g https://github.com/ESP32Async/ESPAsyncWebServer ESPAsyncWebServer
-          g https://github.com/h2zero/NimBLE-Arduino NimBLE-Arduino
-          g https://github.com/adafruit/Adafruit_NeoPixel Adafruit_NeoPixel
-          g https://github.com/bblanchon/ArduinoJson ArduinoJson
-          g https://github.com/ivanseidel/LinkedList LinkedList
-          g https://github.com/plerup/espsoftwareserial EspSoftwareSerial
-          g https://github.com/adafruit/Adafruit_BusIO Adafruit_BusIO
-          cp -r libraries/Adafruit_TCA8418 CustomAdafruit_TCA8418 2>/dev/null || echo "TCA8418 yok"
-          ls -d Custom* | tee -a $GITHUB_STEP_SUMMARY
+          git clone -q --depth 1 https://github.com/marian-craciunescu/ESP32Ping CustomESP32Ping
+          git clone -q --depth 1 https://github.com/ESP32Async/AsyncTCP CustomAsyncTCP
+          git clone -q --depth 1 https://github.com/stevemarple/MicroNMEA CustomMicroNMEA
+          git clone -q --depth 1 https://github.com/ESP32Async/ESPAsyncWebServer CustomESPAsyncWebServer
+          git clone -q --depth 1 https://github.com/h2zero/NimBLE-Arduino CustomNimBLE
+          git clone -q --depth 1 https://github.com/adafruit/Adafruit_NeoPixel CustomNeoPixel
+          git clone -q --depth 1 https://github.com/bblanchon/ArduinoJson CustomArduinoJson
+          git clone -q --depth 1 https://github.com/ivanseidel/LinkedList CustomLinkedList
+          git clone -q --depth 1 https://github.com/plerup/espsoftwareserial CustomEspSoftwareSerial
+          git clone -q --depth 1 https://github.com/adafruit/Adafruit_BusIO CustomBusIO
+          cp -r libraries/Adafruit_TCA8418 CustomTCA8418
+          ls -d Custom* >> $GITHUB_STEP_SUMMARY
 
-      - name: Patch platform (zmuldefs + no-exceptions)
+      - name: Patch
         run: |
-          for f in $(find /home/runner/.arduino15/packages/esp32/hardware/esp32/ -name platform.txt); do
-            sed -i 's/compiler.c.elf.extra_flags=/compiler.c.elf.extra_flags=-Wl,-zmuldefs /' "$f"
-          done
-          for f in $(find /home/runner/.arduino15/packages/esp32/tools/esp32-arduino-libs/ -name cpp_flags); do
-            sed -i 's/-fexceptions/-fno-exceptions/g' "$f"
-          done
-          echo "platform patch OK" >> $GITHUB_STEP_SUMMARY
+          find /home/runner/.arduino15/packages/esp32/hardware -name platform.txt -exec sed -i 's/compiler.c.elf.extra_flags=/compiler.c.elf.extra_flags=-Wl,-zmuldefs /' {} +
+          find /home/runner/.arduino15/packages/esp32/tools/esp32-arduino-libs -name cpp_flags -exec sed -i 's/-fexceptions/-fno-exceptions/g' {} +
+          echo patched >> $GITHUB_STEP_SUMMARY
 
-      - name: Board info -> summary
+      - name: Build
         run: |
-          arduino-cli board details -b "esp32:esp32:esp32c5" >> $GITHUB_STEP_SUMMARY 2>&1 || \
-          arduino-cli board listall | grep -i c5 >> $GITHUB_STEP_SUMMARY 2>&1
-
-      - name: Compile
-        run: |
-          FQBN="esp32:esp32:esp32c5:FlashSize=4M,PartitionScheme=min_spiffs,PSRAM=disabled"
-          LIBS=""
-          for d in Custom*/; do LIBS="$LIBS --library $d"; done
-          arduino-cli compile --fqbn "$FQBN" $LIBS \
-            --warnings none \
-            --build-property "compiler.cpp.extra_flags=-DMARAUDER_C5" \
-            --output-dir ./build \
-            esp32_marauder > /tmp/compile.log 2>&1 || true
-          tail -60 /tmp/compile.log >> $GITHUB_STEP_SUMMARY
-          echo "=== SIZE ===" >> $GITHUB_STEP_SUMMARY
+          L=""
+          for d in Custom*/; do L="$L --library $d"; done
+          arduino-cli compile --fqbn esp32:esp32:esp32c5:FlashSize=4M,PartitionScheme=min_spiffs,PSRAM=disabled $L --warnings none --build-property compiler.cpp.extra_flags=-DMARAUDER_C5 --output-dir ./build esp32_marauder > /tmp/b.log 2>&1 || true
+          tail -50 /tmp/b.log >> $GITHUB_STEP_SUMMARY
           ls -la build/ >> $GITHUB_STEP_SUMMARY 2>&1 || true
 
-      - name: Upload firmware
+      - name: Pack
         run: |
-          if [ -f build/esp32_marauder.ino.bin ]; then
-            mkdir -p artifacts
-            cp build/esp32_marauder.ino.bin artifacts/marauder_c5_4mb.bin
-            cp build/esp32_marauder.ino.bootloader.bin artifacts/bootloader.bin
-            cp build/esp32_marauder.ino.partitions.bin artifacts/partitions.bin
-            ls -lh artifacts/ >> $GITHUB_STEP_SUMMARY
-          else
-            echo "BUILD FAILED" >> $GITHUB_STEP_SUMMARY
-          fi
+          mkdir -p artifacts
+          cp build/esp32_marauder.ino.bin artifacts/marauder.bin || echo noapp >> $GITHUB_STEP_SUMMARY
+          cp build/esp32_marauder.ino.bootloader.bin artifacts/bootloader.bin || echo noboot >> $GITHUB_STEP_SUMMARY
+          cp build/esp32_marauder.ino.partitions.bin artifacts/partitions.bin || echo nopart >> $GITHUB_STEP_SUMMARY
+          ls -lh artifacts/ >> $GITHUB_STEP_SUMMARY
 
-      - name: Publish
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: marauder-c5-4mb
