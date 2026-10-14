@@ -1,20 +1,2 @@
-In file included from /home/runner/work/ESP32Marauder/ESP32Marauder/esp32_marauder/GpsInterface.h:7,
-                 from /home/runner/work/ESP32Marauder/ESP32Marauder/esp32_marauder/esp32_marauder.ino:18:
-/home/runner/work/ESP32Marauder/ESP32Marauder/CustomEspSoftwareSerial/src/SoftwareSerial.h:24:10: fatal error: circular_queue.h: No such file or directory
-   24 | #include <circular_queue.h>
-      |          ^~~~~~~~~~~~~~~~~~
-compilation terminated.
-
-[92mUsed library[0m      [92mVersion[0m [90mPath[0m
-[93mFS[0m                3.3.4   [90m/home/runner/.arduino15/packages/esp32/hardware/esp32/3.3.4/libraries/FS[0m
-[93mLinkedList[0m        1.3.3   [90m/home/runner/work/ESP32Marauder/ESP32Marauder/CustomLinkedList[0m
-[93mSPIFFS[0m            3.3.4   [90m/home/runner/.arduino15/packages/esp32/hardware/esp32/3.3.4/libraries/SPIFFS[0m
-[93mMicroNMEA[0m         2.0.6   [90m/home/runner/work/ESP32Marauder/ESP32Marauder/CustomMicroNMEA[0m
-[93mEspSoftwareSerial[0m 8.2.0   [90m/home/runner/work/ESP32Marauder/ESP32Marauder/CustomEspSoftwareSerial[0m
-
-[92mUsed platform[0m [92mVersion[0m [90mPath[0m
-[93mesp32:esp32[0m   3.3.4   [90m/home/runner/.arduino15/packages/esp32/hardware/esp32/3.3.4[0m
-Error during build: exit status 1
-APP YOK
-BOOT YOK
-PART YOK
+Sketch uses 1869676 bytes (89%) of program storage space. Maximum is 2097152 bytes.
+Global variables use 83876 bytes (25%) of dynamic memory, leaving 243804 bytes for local variables. Maximum is 327680 bytes.
