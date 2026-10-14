@@ -85,5 +85,3 @@ jobs:
           path: artifacts/
           retention-days: 7
           if-no-files-found: ignore
-
-satırlar 1-87
