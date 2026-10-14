@@ -2,7 +2,7 @@ name: Marauder C5 4MB
 on:
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,7 +16,6 @@ jobs:
           curl -fL https://downloads.arduino.cc/arduino-cli/arduino-cli_1.5.1_Linux_64bit.tar.gz -o /tmp/c.tgz
           tar -xzf /tmp/c.tgz -C /tmp/acli
           sudo install -m 755 /tmp/acli/arduino-cli /usr/local/bin/arduino-cli
-          arduino-cli version
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@3.3.4
 
@@ -33,34 +32,28 @@ jobs:
           git clone -q --depth 1 https://github.com/plerup/espsoftwareserial CustomEspSoftwareSerial
           git clone -q --depth 1 https://github.com/adafruit/Adafruit_BusIO CustomBusIO
           cp -r libraries/Adafruit_TCA8418 CustomTCA8418
-          ls -d Custom* >> $GITHUB_STEP_SUMMARY
 
       - name: Patch
         run: |
           find /home/runner/.arduino15/packages/esp32/hardware -name platform.txt -exec sed -i 's/compiler.c.elf.extra_flags=/compiler.c.elf.extra_flags=-Wl,-zmuldefs /' {} +
           find /home/runner/.arduino15/packages/esp32/tools/esp32-arduino-libs -name cpp_flags -exec sed -i 's/-fexceptions/-fno-exceptions/g' {} +
-          echo patched >> $GITHUB_STEP_SUMMARY
 
       - name: Build
         run: |
           L=""
           for d in Custom*/; do L="$L --library $d"; done
-          arduino-cli compile --fqbn esp32:esp32:esp32c5:FlashSize=4M,PartitionScheme=min_spiffs,PSRAM=disabled $L --warnings none --build-property compiler.cpp.extra_flags=-DMARAUDER_C5 --output-dir ./build esp32_marauder > /tmp/b.log 2>&1 || true
-          tail -50 /tmp/b.log >> $GITHUB_STEP_SUMMARY
-          ls -la build/ >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          arduino-cli compile --fqbn esp32:esp32:esp32c5:PartitionScheme=no_ota,PSRAM=disabled $L --warnings none --build-property compiler.cpp.extra_flags=-DMARAUDER_C5 --output-dir ./build esp32_marauder > b.log 2>&1 || true
+          tail -60 b.log
 
-      - name: Pack
+      - name: Push to repo
         run: |
-          mkdir -p artifacts
-          cp build/esp32_marauder.ino.bin artifacts/marauder.bin || echo noapp >> $GITHUB_STEP_SUMMARY
-          cp build/esp32_marauder.ino.bootloader.bin artifacts/bootloader.bin || echo noboot >> $GITHUB_STEP_SUMMARY
-          cp build/esp32_marauder.ino.partitions.bin artifacts/partitions.bin || echo nopart >> $GITHUB_STEP_SUMMARY
-          ls -lh artifacts/ >> $GITHUB_STEP_SUMMARY
-
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: marauder-c5-4mb
-          path: artifacts/
-          retention-days: 7
-          if-no-files-found: ignore
+          mkdir -p fw
+          cp build/esp32_marauder.ino.bin fw/marauder.bin 2>/dev/null || echo "APP YOK" >> b.log
+          cp build/esp32_marauder.ino.bootloader.bin fw/bootloader.bin 2>/dev/null || echo "BOOT YOK" >> b.log
+          cp build/esp32_marauder.ino.partitions.bin fw/partitions.bin 2>/dev/null || echo "PART YOK" >> b.log
+          git config user.name "ci-bot"
+          git config user.email "ci@users.noreply.github.com"
+          git add -f b.log fw
+          git commit -m "c5 build output" || true
+          git push origin HEAD:master || true
+          echo "PUSHED"
